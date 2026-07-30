@@ -2,11 +2,13 @@ const GEO_DATA = [...GEO_DATA_P1, ...GEO_DATA_P2, ...GEO_DATA_P3];
 
 let map;
 let markers;
+let tileLayerHigh, tileLayerLow;
 let markerCache = [];
 let metadata = null;
 let packagesSlider = null;
 let dateSlider = null;
 let __searchReportTimeout = null;
+let lastFilters = {}; /* store last applied filters for zoom handling */
 
 function filterPanel() {
   return {
@@ -14,7 +16,7 @@ function filterPanel() {
     packagesRange: [1, 100],
     dateRange: [],
     dateRangeText: "",
-    minimized: false,
+    minimized: true,
     filteredCount: 0,
     totalCount: 0,
     totalWeight: 0,
@@ -59,24 +61,30 @@ function filterPanel() {
     },
 
     startDrag(event) {
-      if (event.target.closest("button, input, .slider-container")) return;
+      // normalize event for mouse and touch
+      const ev = event && event.touches && event.touches.length ? event.touches[0] : event;
+      // if user clicked on a control inside panel, don't start dragging
+      if (ev.target && ev.target.closest && ev.target.closest("button, input, .slider-container")) return;
 
       this.dragging = true;
       this.offset = {
-        x: event.clientX - this.position.x,
-        y: event.clientY - this.position.y,
+        x: (ev.clientX || 0) - this.position.x,
+        y: (ev.clientY || 0) - this.position.y,
       };
 
       document.body.style.userSelect = "none";
 
       const moveHandler = (e) => {
         if (!this.dragging) return;
+        const pe = e && e.touches && e.touches.length ? e.touches[0] : e;
         const panel = document.getElementById("filter-panel");
         const maxX = window.innerWidth - panel.offsetWidth - 20;
         const maxY = window.innerHeight - panel.offsetHeight - 20;
+        const clientX = pe.clientX || 0;
+        const clientY = pe.clientY || 0;
         this.position = {
-          x: Math.max(20, Math.min(maxX, e.clientX - this.offset.x)),
-          y: Math.max(20, Math.min(maxY, e.clientY - this.offset.y)),
+          x: Math.max(20, Math.min(maxX, clientX - this.offset.x)),
+          y: Math.max(20, Math.min(maxY, clientY - this.offset.y)),
         };
       };
 
@@ -85,11 +93,16 @@ function filterPanel() {
         document.body.style.userSelect = "";
         document.removeEventListener("mousemove", moveHandler);
         document.removeEventListener("mouseup", upHandler);
+        document.removeEventListener("touchmove", moveHandler);
+        document.removeEventListener("touchend", upHandler);
       };
 
       document.addEventListener("mousemove", moveHandler);
       document.addEventListener("mouseup", upHandler);
+      document.addEventListener("touchmove", moveHandler, { passive: false });
+      document.addEventListener("touchend", upHandler);
     },
+
 
     applyFilters() {
       const filters = {
@@ -216,10 +229,42 @@ function initMap() {
     maxZoom: 18,
   });
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  tileLayerHigh = L.tileLayer(tileUrl, {
     attribution: "© OpenStreetMap",
     maxZoom: 19,
-  }).addTo(map);
+  });
+  tileLayerHigh.addTo(map);
+
+  // Low-res tile layer that requests tiles one zoom level lower (less detail) to reduce rendering cost
+  const TileLayerLowRes = L.TileLayer.extend({
+    getTileUrl: function(coords) {
+      const z = this._getZoomForUrl();
+      const lowZ = Math.max(0, z - 1);
+      return L.Util.template(this._url, L.extend({ s: this._getSubdomain(coords), z: lowZ, x: coords.x, y: coords.y }, this.options));
+    }
+  });
+  tileLayerLow = new TileLayerLowRes(tileUrl, { attribution: "© OpenStreetMap", maxZoom: 19 });
+
+  // helper to switch tile quality based on zoom level
+  function applyTileQuality(zoom) {
+    const threshold = 13; // at or above this zoom use lower-quality tiles to keep everything loaded but lighter-weight
+    try {
+      if (zoom >= threshold) {
+        if (map.hasLayer(tileLayerHigh)) map.removeLayer(tileLayerHigh);
+        if (!map.hasLayer(tileLayerLow)) map.addLayer(tileLayerLow);
+      } else {
+        if (map.hasLayer(tileLayerLow)) map.removeLayer(tileLayerLow);
+        if (!map.hasLayer(tileLayerHigh)) map.addLayer(tileLayerHigh);
+      }
+    } catch (e) {
+      // ignore errors switching layers
+    }
+  }
+
+  // apply initial quality and switch on zoom changes
+  applyTileQuality(map.getZoom());
+  map.on('zoomend', () => applyTileQuality(map.getZoom()));
 
   markers = L.markerClusterGroup({
     maxClusterRadius: 50,
@@ -227,10 +272,13 @@ function initMap() {
     showCoverageOnHover: false,
     zoomToBoundsOnClick: true,
     chunkedLoading: true,
+    /* restored chunkInterval to previous, more stable value */
     chunkInterval: 100,
   });
 
   map.addLayer(markers);
+
+  // Zoom handler removed — rely on default cluster behavior. UpdateMarkers will switch icons to a lower-quality variant when zoomed in to keep all markers loaded but lighter-weight.
 }
 
 function calculateMetadata(data) {
@@ -274,18 +322,35 @@ const markerIcon = L.icon({
   popupAnchor: [0, -30],
 });
 
+
 function buildMarkerCache() {
   GEO_DATA.forEach((item) => {
     if (!item.lat || !item.lon) return;
 
-    const marker = L.marker([item.lat, item.lon], { icon: markerIcon });
+    const peopleCount = (item.people || []).length || 0;
 
-    marker.bindPopup(() => buildPopupContent(item), {
+    // If there's exactly one person at this location, use a lightweight green div icon showing '1'
+    let m;
+    if (peopleCount === 1) {
+      const singleIcon = L.divIcon({
+        className: 'single-marker',
+        html: `<div class="single-marker-inner">${peopleCount}</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -16],
+      });
+      m = L.marker([item.lat, item.lon], { icon: singleIcon });
+    } else {
+      // fallback to default icon for other locations (keeps cluster behavior)
+      m = L.marker([item.lat, item.lon], { icon: markerIcon });
+    }
+
+    m.bindPopup(() => buildPopupContent(item), {
       maxWidth: 360,
       minWidth: 280,
     });
 
-    markerCache.push({ marker, data: item });
+    markerCache.push({ marker: m, data: item });
   });
 }
 
@@ -326,7 +391,9 @@ function buildPopupContent(item) {
 }
 
 function updateMarkers(filters) {
-  const search = filters?.search?.toLowerCase().trim() || '';
+  // remember filters to allow re-applying on zoom changes
+  lastFilters = filters || lastFilters || {};
+  const search = lastFilters?.search?.toLowerCase().trim() || '';
   const postalRegex = search && isPostalPattern(search) ? buildPostalRegex(search) : null;
 
   const filtered = markerCache.filter(({ data }) => {

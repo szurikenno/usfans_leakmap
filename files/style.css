@@ -122,8 +122,126 @@ body {
 }
 
 #filter-panel.minimized {
-  width: auto;
+  width: 56px;
 }
+
+/* Hide body when minimized and show compact header */
+#filter-panel.minimized .panel-body {
+  display: none;
+}
+#filter-panel.minimized .panel-title {
+  display: none;
+}
+#filter-panel.minimized .panel-toggle {
+  width: 36px;
+  height: 36px;
+}
+
+/* Visual enhancements */
+#filter-panel {
+  transition: transform 220ms var(--transition), box-shadow 200ms ease, left 120ms ease, top 120ms ease;
+  border: 0;
+}
+.panel-header {
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.06));
+}
+#filter-panel {
+  backdrop-filter: blur(6px);
+}
+.panel-body {
+  background: linear-gradient(180deg, rgba(16,18,16,0.6), rgba(14,16,14,0.4));
+}
+/* Softer buttons */
+.btn {
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.btn-primary {
+  background: linear-gradient(180deg, var(--color-primary), var(--color-primary-hover));
+  border: none;
+  color: #fff;
+}
+.btn-secondary {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.04);
+  color: var(--color-text-secondary);
+}
+
+/* Make sliders and inputs a bit larger for touch */
+.search-input { height: 42px; padding-left: 44px; }
+.noUi-origin .noUi-handle { width: 18px; height: 18px; }
+
+/* Panel header handle hint */
+.panel-header .handle {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 3px;
+  margin-right: 8px;
+}
+
+/* Center the toggle icon when minimized */
+#filter-panel.minimized .panel-toggle {
+  margin: 8px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* reduced background to be less visually heavy */
+  background: rgba(255,255,255,0.03);
+  padding: 4px;
+  border-radius: 6px;
+}
+
+/* Single-person marker (green circle with number) */
+.leaflet-container .single-marker {
+  pointer-events: auto; /* let clicks pass through to marker */
+}
+.single-marker-inner {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: linear-gradient(180deg,#37b24d,#2f9e44);
+  border: 2px solid rgba(255,255,255,0.08);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+
+/* simpler variant used when zoomed in (faster to render) */
+.single-marker-inner.simple {
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.marker-lowquality {
+  /* wrapper element for low-quality divIcon */
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+.marker-lowquality-inner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(20,20,20,0.8);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
+
+/* Slightly smaller default marker icon to improve rendering */
+.leaflet-marker-icon {
+  width: 28px !important;
+  height: 28px !important;
+}
+.leaflet-marker-icon img { width: 100%; height: 100%; }
+
 
 .panel-header {
   display: flex;
